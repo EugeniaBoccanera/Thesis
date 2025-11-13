@@ -102,6 +102,40 @@ if e0 is not None and e1 is not None and e2 is not None:
     plt.savefig(os.path.join(outfig, "sum_eigen_hist_h.png"), dpi=150)
     plt.close()
 
+    # --- Combined spatial slice plot for e0, e1, e2 with common scale
+    try:
+        z = N // 2
+        eig_arrays = [(e0, 'eigenval_0'), (e1, 'eigenval_1'), (e2, 'eigenval_2')]
+        # compute a common symmetric vmin/vmax across all eigenvalue arrays using robust percentiles
+        all_vals = np.hstack([arr.ravel()[~np.isnan(arr.ravel())] for arr, _ in eig_arrays])
+        if all_vals.size == 0:
+            print("Skipping combined eigenvalue figure: all eigenvalue arrays are NaN")
+        else:
+            p1 = np.nanpercentile(all_vals, 1)
+            p99 = np.nanpercentile(all_vals, 99)
+            m = max(abs(p1), abs(p99))
+            vmin, vmax = -m, m
+
+            fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
+            cmap = 'RdBu'
+            for ax, (arr, name) in zip(axes, eig_arrays):
+                im = ax.imshow(arr[:, :, z].T, origin='lower', cmap=cmap, vmin=vmin, vmax=vmax)
+                ax.set_title(f'{name} (z={z})')
+                ax.set_xlabel('x (voxels)')
+            axes[0].set_ylabel('y (voxels)')
+            cbar = fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.04, pad=0.02)
+            cbar.set_label('eigenvalue')
+            # use Figure API to set super-title and adjust layout to avoid tight_layout warnings
+            fig.suptitle(f'Eigenvalue slices (z={z}) — common scale [{vmin:.3e}, {vmax:.3e}]')
+            outname = os.path.join(outfig, f"eigenvals_3panel_slice_z{z}.png")
+            # adjust top to make room for suptitle and colorbar
+            fig.subplots_adjust(top=0.88)
+            fig.savefig(outname, dpi=150)
+            plt.close(fig)
+            print(f"Saved combined eigenvalue image: {outname}")
+    except Exception as e:
+        print(f"Warning: could not create combined eigenvalue figure: {e}")
+
 
 # Visualize classification slices
 z= N//2 
@@ -130,7 +164,7 @@ cbar = plt.colorbar(im2, ax=ax, ticks=[0,1,2,3], fraction=0.046, pad=0.02)
 cbar.ax.set_yticklabels(['void','sheet','filament','knot'])
 
 # c) Sum eigenvalues 
-ax = axs[2]
+ax = axs[2] 
 im3 = ax.imshow((e0[:,:,z] + e1[:,:,z] + e2[:,:,z]).T, origin='lower', cmap='RdBu')
 ax.set_title('sum(eigs)')
 ax.set_xlabel('x (voxels)')
