@@ -4,6 +4,7 @@ Count NaNs in velocity fields produced by preprocessing_data.py.
 
 Usage:
     python3 count_nans.py
+USED ONLY ONE TIME, JUST TO CHECK DATA QUALITY.
 """
 
 import os

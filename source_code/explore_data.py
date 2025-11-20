@@ -1,15 +1,12 @@
-# FILE df_m_128_PCS_z=0.npy
 import numpy as np 
 import os
-from pathlib import Path
-import sys
-
 import h5py
 import hdf5plugin
 
 file_path = "/stor/progetti/p1087/p1087u08/Tesi/data/raw_data/df_m_128_PCS_z=0.npy"
 snapshot_dir = "data/raw_data/snapdir_004"
 
+# SINGLE FILE df_m_128_PCS_z=0.npy
 def explore_single_file(file_path):
     """Explore a single data file and print basic statistics."""
     print("File Exploration")
@@ -49,7 +46,7 @@ def explore_single_file(file_path):
         else:
             reasons.append("The minimum value is greater than or equal to -1.")
 
-        print(f"result: {'Overdensity field' if is_overdensity else 'Not an overdensity field'}")
+        print(f"Result: {'Overdensity field' if is_overdensity else 'Not an overdensity field'}")
         for reason in reasons:
             print(f" - {reason}")
 
@@ -70,13 +67,11 @@ def explore_single_file(file_path):
         return None, False
     
 
-
 explore_single_file(file_path)
 
 
 
 # DIRECTORY snapdir_004 
-
 def explore_single_snapshot(snapshot_file):
     """Explore a single file in a snapshot directory."""
     print(f"Exploring Snapshot Directory: {snapshot_file}")
@@ -159,8 +154,6 @@ def test_data_reading(snapshot_dir):
                     print(f"   Range Vx: {velocities[:, 0].min():.3f} - {velocities[:, 0].max():.3f}")
                     print(f"   Range Vy: {velocities[:, 1].min():.3f} - {velocities[:, 1].max():.3f}")
                     print(f"   Range Vz: {velocities[:, 2].min():.3f} - {velocities[:, 2].max():.3f}")
-
-            
 
 
         except Exception as e:

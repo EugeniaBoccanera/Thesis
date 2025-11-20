@@ -9,8 +9,8 @@ from pathlib import Path
 
 # Define parameters
 dir_snap = "data/raw_data/snapdir_004"   
-BoxSize = 1000.0  # Mpc/h  simulation dimension
-grid_size= 128  # grid resolution
+BoxSize = 1000.0     # Mpc/h  simulation dimension
+grid_size= 128       # grid resolution
 file_density_field= "data/raw_data/df_m_128_PCS_z=0.npy"
 
 # Load density field and define the snapshots files
@@ -22,10 +22,7 @@ snapshots_file = sorted([f for f in os.listdir(dir_snap) if f.endswith('.hdf5')]
 
 def load_particles(snapshot_dir):
     """Read all PartType1 positions and velocities from snapshot files.
-
-    Returns:
-      positions: (N,3) in Mpc/h
-      velocities: (N,3) in km/s
+    Returns: positions: (N,3) in Mpc/h;  velocities: (N,3) in km/s
     """
     all_positions = []
     all_velocities = []
@@ -36,12 +33,14 @@ def load_particles(snapshot_dir):
             with h5py.File(filepath, 'r') as f:
                 if 'PartType1' in f:
                     p = f['PartType1']
+                    # Extract the coordiinates and velocities
                     if 'Coordinates' in p:
                         pos = p['Coordinates'][:] / 1000.0  # kpc/h -> Mpc/h
                         all_positions.append(pos)
                     if 'Velocities' in p:
                         vel = p['Velocities'][:]
                         all_velocities.append(vel)
+                    # Count particles
                     n = pos.shape[0] if 'Coordinates' in p else 0
                     total += n
                     print(f"  Loaded {n:,} particles from {filename}")
@@ -50,12 +49,13 @@ def load_particles(snapshot_dir):
             continue
     if not all_positions or not all_velocities:
         raise ValueError('No particles loaded from snapshots')
+    # Concatenate all data
     positions = np.concatenate(all_positions, axis=0)
     velocities = np.concatenate(all_velocities, axis=0)
     print(f"Total loaded particles: {total:,}")
     return positions, velocities
 
-
+# Define PCS kernel function for the mass assignment
 def pcs_kernel_1d(u):
     """Piecewise-cubic spline (PCS) 1D kernel.
     Accepts array-like u (can be negative); returns kernel value(s).
@@ -68,10 +68,9 @@ def pcs_kernel_1d(u):
     out[mask2] = (1.0/6.0) * (2.0 - u[mask2])**3
     return out
 
-
+# Vectorized PCS weights for fractional positions
 def pcs_weights_for_fracs(frac, offsets=np.array([-1, 0, 1, 2], dtype=np.int32)):
     """Vectorized PCS weights for a chunk.
-
     frac: (M,3) fractional positions inside node
     returns: wx, wy, wz arrays of shape (M, len(offsets))
     where wx[i,j] = pcs_kernel_1d(frac[i,0] - offsets[j])
@@ -85,7 +84,7 @@ def pcs_weights_for_fracs(frac, offsets=np.array([-1, 0, 1, 2], dtype=np.int32))
     wz = pcs_kernel_1d(uz)
     return wx, wy, wz
 
-
+# Accumulate chunk
 def _accumulate_chunk(i0, vel_c, wx, wy, wz, offsets, grid_size, periodic):
     """Accumulate bincounts for a chunk.
 
@@ -115,6 +114,7 @@ def _accumulate_chunk(i0, vel_c, wx, wy, wz, offsets, grid_size, periodic):
                     continue
                 sel = np.nonzero(valid)[0]
 
+                # Apply periodicity for grid indices
                 if periodic:
                     ixg = (ix[sel] % grid_size).astype(np.int64)
                     iyg = (iy[sel] % grid_size).astype(np.int64)
@@ -129,9 +129,10 @@ def _accumulate_chunk(i0, vel_c, wx, wy, wz, offsets, grid_size, periodic):
                     iyg = iy[sel]
                     izg = iz[sel]
 
+                # Compute flat indices
                 flat_idx = (ixg * grid_size + iyg) * grid_size + izg
                 w = (wx_col[sel] * wy_col[sel] * wz_col[sel])
-
+                # Accumulate using np.bincount
                 sum_vx_chunk += np.bincount(flat_idx, weights=vel_c[sel, 0] * w, minlength=G3)
                 sum_vy_chunk += np.bincount(flat_idx, weights=vel_c[sel, 1] * w, minlength=G3)
                 sum_vz_chunk += np.bincount(flat_idx, weights=vel_c[sel, 2] * w, minlength=G3)
@@ -141,54 +142,23 @@ def _accumulate_chunk(i0, vel_c, wx, wy, wz, offsets, grid_size, periodic):
     return sum_vx_chunk, sum_vy_chunk, sum_vz_chunk, sum_w_chunk, sum_counts_chunk
 
 
-# Load particles function
-## load_particles is defined above (renamed from read_snapshots). The function
-## body includes loading from all snapshot files and returning positions and
-## velocities.
-
-
-
-
 # Create velocity fields function
-
-# Note: pcs_kernel_1d is defined earlier; reuse that implementation
 
 def create_velocity_fields(positions, velocities, BoxSize=1000.0, grid_size=128, chunk_size=1000000, periodic=False):
     """
     Create 3 velocity fields (Vx, Vy, Vz) on a regular grid using PCS assignment.
 
-    Parameters
-    ----------
-    positions : ndarray, shape (N,3)
-        Particle positions in the same length units used for BoxSize. By
-        convention in this script positions are expected in Mpc/h (the
-        loader converts kpc/h -> Mpc/h).
-    velocities : ndarray, shape (N,3)
-        Particle velocities in km/s.
-    BoxSize : float
-        Box size in Mpc/h.
-    grid_size : int
-        Number of grid cells per side.
-    chunk_size : int
-        Number of particles to process per chunk to limit memory usage.
-    periodic : bool
-        Whether to apply periodic boundary conditions when assigning to the grid.
-
-    Returns
-    -------
+    Returns:
     vx, vy, vz : ndarray, shape (grid_size,grid_size,grid_size)
         Mass-weighted velocity components on the grid (float32). Empty voxels
         are set to NaN.
     weight_field : ndarray, shape (grid_size,grid_size,grid_size)
         Sum of PCS weights assigned to each voxel (float64). For equal-mass
-        particles this is proportional to mass per voxel; multiplying by a
-        particle mass (from snapshot header MassTable) produces a mass field.
+        particles this is proportional to mass per voxel.
     count_field : ndarray, shape (grid_size,grid_size,grid_size)
         Integer particle counts per voxel (produced by rounding the float
-        accumulator). Note that due to the PCS kernel a single particle can
-        contribute to multiple voxels, so sum(count_field) should be close to
-        the number of particles but may differ at domain boundaries without
-        periodic=True.
+        accumulator). It's bigger than the real number of particles because
+        particles contribute to multiple voxels due to PCS assignment.
     """
     print("\nCreate velocity fields")
     print(f"BoxSize: {BoxSize} Mpc/h")
@@ -205,7 +175,6 @@ def create_velocity_fields(positions, velocities, BoxSize=1000.0, grid_size=128,
     sum_vz = np.zeros(G3, dtype=np.float64)
     sum_w = np.zeros(G3, dtype=np.float64)
     # additional accumulator to produce count field
-    # use float accumulator because np.bincount with 'weights' returns float64
     sum_counts = np.zeros(G3, dtype=np.float64)
     
     # Basic checks
@@ -214,8 +183,8 @@ def create_velocity_fields(positions, velocities, BoxSize=1000.0, grid_size=128,
 
     # precompute offsets arrays for the 4 positions along each axis
     offsets = np.array([-1, 0, 1, 2], dtype=np.int32)
-
     N = positions.shape[0]
+
     # Process particles in chunks
     for start in range(0, N, chunk_size):
         end = min(start + chunk_size, N)
@@ -235,16 +204,16 @@ def create_velocity_fields(positions, velocities, BoxSize=1000.0, grid_size=128,
         sum_vx_chunk, sum_vy_chunk, sum_vz_chunk, sum_w_chunk, sum_counts_chunk = _accumulate_chunk(
             i0, vel_c, wx, wy, wz, offsets, grid_size, periodic
         )
-
+        # Add to global accumulators
         sum_vx += sum_vx_chunk
         sum_vy += sum_vy_chunk
         sum_vz += sum_vz_chunk
         sum_w  += sum_w_chunk
         sum_counts += sum_counts_chunk
 
-        # Progress logging per chunk (every 5 chunks)
+        # Progress logging per chunk (every 10 chunks)
         chunk_idx = start // chunk_size
-        if chunk_idx % 5 == 0:
+        if chunk_idx % 10 == 0:
             print(f"  Processed chunk {chunk_idx}: particles {end}/{N} ({100*end/N:.1f}%)")
 
     # reshape back
